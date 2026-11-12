@@ -1,0 +1,73 @@
+# Deploy toàn bộ file HTML trong thư mục site/ lên GitHub Pages.
+# Thêm trang mới: bỏ file .html vào site/ rồi push, không cần sửa workflow.
+# Nếu site/ không có index.html, workflow tự tạo trang mục lục từ <title> của từng file.
+name: Deploy site to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - ".github/workflows/deploy-pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Chuẩn bị thư mục site
+        run: |
+          ls site/*.html >/dev/null 2>&1 || { echo "Không có file .html nào trong site/"; exit 1; }
+          mkdir -p _site
+          cp -r site/. _site/
+
+      - name: Tạo trang mục lục (nếu chưa có index.html)
+        if: hashFiles('site/index.html') == ''
+        shell: python
+        run: |
+          import glob, html, os, re
+          rows = []
+          for f in sorted(glob.glob("_site/*.html")):
+              name = os.path.basename(f)
+              src = open(f, encoding="utf-8").read()
+              m = re.search(r"<title>(.*?)</title>", src, re.S | re.I)
+              title = html.unescape(m.group(1).strip()) if m else name
+              rows.append(f'<a href="{html.escape(name)}">{html.escape(title)}<span>{html.escape(name)}</span></a>')
+          page = f"""<!doctype html><html lang="vi"><head><meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1"><title>Tổng hợp voz</title>
+          <style>
+          :root{{--bg:#f4f5f7;--card:#fff;--fg:#1c1e21;--mut:#65676b;--line:#e3e5e8}}
+          @media (prefers-color-scheme:dark){{:root{{--bg:#111214;--card:#1b1c1f;--fg:#e4e6eb;--mut:#a0a4ab;--line:#2e3035}}}}
+          body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}}
+          .wrap{{max-width:640px;margin:0 auto;padding:32px 16px}}
+          h1{{font-size:22px;margin:0 0 16px}}
+          nav{{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}}
+          a{{display:flex;justify-content:space-between;gap:12px;padding:12px 16px;color:var(--fg);text-decoration:none;border-top:1px solid var(--line)}}
+          a:first-child{{border-top:0}} a:hover{{background:var(--line)}}
+          span{{color:var(--mut);font-size:13px}}
+          </style></head><body><div class="wrap"><h1>Tổng hợp voz</h1><nav>{"".join(rows)}</nav></div></body></html>"""
+          open("_site/index.html", "w", encoding="utf-8").write(page)
+          print(f"index.html: {len(rows)} trang")
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
